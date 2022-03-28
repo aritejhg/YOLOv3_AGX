@@ -3,7 +3,7 @@ An implementation of YOLOv3 on NVIDIA AGX. Includes my implementation of dataset
 
 This project focuses on training a YOLO model on custom database with custom set of classes using alexeyab/darknet and google openimages. 
 
-It provides a way to download images (without annotations, loko at OiD toolkit if annotations are needed) and train dataset on the yolo model. 
+It provides a way to download images (without annotations, look at OiD toolkit if annotations are needed) as I create custom annotations and train dataset on the yolo model. 
 
 This project allows for creation of multiple datasets which can be tested using different models trained at different resolutions for varying number of epochs.
 

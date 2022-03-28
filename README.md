@@ -1,7 +1,6 @@
 # YOLOv3_AGX
 An implementation of YOLOv3 on NVIDIA AGX. Includes my implementation of dataset creation using Google OpenImages
 
-# readme.md
 This project focuses on training a YOLO model on custom database with custom set of classes using alexeyab/darknet and google openimages. 
 
 It provides a way to download images (without annotations, loko at OiD toolkit if annotations are needed) and train dataset on the yolo model. 
@@ -213,7 +212,166 @@ mAP can be checked using this command
 
   Transfer these files to Xavier AGX.
 
-## GO TO XAVIER AGX BRANCH FOR IMPLEMENTATION
+
+# XAVIER AGX SETUP
+
+
+**Folder layout for Xavier AGX**
+
+```
+--catkin_ws
+    -- src
+        -- darknet_ros
+            -- darknet_ros
+                -- config
+                    -- ros.yaml
+                    -- yolov3_trained.yaml
+                -- launch
+                    -- darknet_ros.launch
+                    -- yolov3_trained.launch
+                -- yolo_network_config
+                    -- cfg
+                        -- yolov3_trained.cfg
+                    -- weights
+                        -- yolov3_trained.weights
+    -- staircase_doorway_detect_yolov3.sh                   
+    -- libraries
+        -- install-opencv.sh
+        -- 3.4.2.zip
+        -- boost_1_76_0.tar.bz2
+```
+
+(Continuing from training setup)
+
+15. On the Xavier AGX, ensure ROS Melodic is installed (Other versions of ROS may use different instructions.) (http://wiki.ros.org/melodic/Installation/Ubuntu, make sure step 1.5 for bashrc config is done.)
+
+```
+echo "source /opt/ros/melodic/setup.bash" >> ~/.bashrc
+echo "source ~/catkin_ws/devel/setup.bash" >> ~/.bashrc
+
+source ~/.bashrc
+```
+
+16. Create a libraries folder. Install OpenCV (ver 3.4.2, contrib = NO) and boost C++ (https://www.boost.org/doc/libs/1_76_0/more/getting_started/unix-variants.html, need to manually download tar file). The most reliable way to get a copy of Boost is to download a distribution from SourceForge, download boost_1_76_0.tar.bz2 (latest on 29/7/21, https://www.boost.org/users/history/version_1_76_0.html)
+
+  In the directory where you want to put the Boost installation, execute
+
+```
+/libraries/install-opencv.sh
+
+tar --bzip2 -xf /libraries/boost_1_76_0.tar.bz2
+cd /libraries/boost_1_76_0
+./bootstrap.sh --prefix=path/to/installation/prefix
+./b2 install
+```
+
+17. Clone and install leggedrobotics/darknet_ros for melodic
+
+```
+cd catkin_workspace/src
+git clone --recursive --branch melodic https://github.com/leggedrobotics/darknet_ros.git
+cd ../
+```
+18. Add compute architecture of Xavier AGX to catkin_ws/src/darknet_ros/darknet_ros/CMakeLists.txt. Xavier AGX uses arch 72 (https://en.wikipedia.org/wiki/CUDA#Supported_GPUs)
+
+```
+-gencode arch=compute_72,code=sm_72
+```
+
+19. Build darknet_ros. CXX flags needed (https://github.com/leggedrobotics/darknet_ros/issues/266#issuecomment-737075555)
+
+```
+catkin_make -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-DCV__ENABLE_C_API_CTORS
+```  
+
+20. In order to use your own detection objects you need to provide your weights and your cfg file inside the directories:
+
+```
+catkin_workspace/src/darknet_ros/darknet_ros/yolo_network_config/weights/
+catkin_workspace/src/darknet_ros/darknet_ros/yolo_network_config/cfg/
+```
+  
+  Currently, the yolov3_trained.weights and yolov3_trained.cfg is placed in these folders. These are weights and detection.cfg files extracted in step 14, just renamed.
+
+21. Create your config file (for darknet_ros, based on names file extracted in step 14) for ROS where you define the names of the detection objects. You need to include it inside:
+
+  catkin_workspace/src/darknet_ros/darknet_ros/config/____.yaml
+
+  Currently, yolov3_trained.yaml is used, as shown below: 
+
+```
+yolo_model:
+
+  config_file:
+    name: yolov3_trained.cfg
+  weight_file:
+    name: yolov3_trained.weights
+  threshold:
+    value: 0.3
+  detection_classes:
+    names:
+      - Closed Door
+      - Open Door
+      - Person
+      - Stairs
+```
+
+Then in the launch file you have to point to your new config file in the line. We make another launch yaml that uses darknet_ros launch yaml, but points to the correct paths. For example, the file here points to yolov3_trained files used. arg name is also changed to point to correct camera topic published by camera. For our case, using Intel RealSense, topic name is camera/color/image_raw
+
+(darknet_ros.launch might need absolute paths if relative paths throw an issue)
+
+```
+<?xml version="1.0" encoding="utf-8"?>
+<launch>
+  
+  <rosparam command="load" ns="darknet_ros" file="$(find darknet_ros)/config/yolov3_trained.yaml"/>
+  <!-- Use YOLOv3 -->
+  <arg name="network_param_file"         default="$(find darknet_ros)/config/yolov3_trained.yaml"/>
+  <arg name="image" default="camera/color/image_raw" />
+
+
+  <!-- Include main launch file -->
+  <include file="$(find darknet_ros)/launch/darknet_ros.launch">
+    <arg name="network_param_file"    value="$(arg network_param_file)"/>
+    <arg name="image" value="$(arg image)" />
+  </include>
+
+</launch>
+```
+
+22. Install RealSense ROS wrapper.
+
+```
+sudo apt-get install ros-$ROS_DISTRO-realsense2-camera
+```
+
+23. Put 99-rule file in correct directory for diagnosing failed to open usb interface issue (https://github.com/IntelRealSense/realsense-ros/issues/1408).
+
+```
+cd /etc/udev/rules.d/ 
+wget https://github.com/IntelRealSense/librealsense/blob/master/config/99-realsense-libusb.rules
+```
+
+24. Change topic in darknet_ros/config/ros.yaml. 
+
+```
+  camera_reading:
+    topic: /camera/color/image_raw
+    queue_size: 1
+```
+25. Install tmux, and use the /catkin_ws/staircase_doorway_detect_yolov3.sh script to launch roscore, darknet_ros and realsense (To confirm realsense is being detected. rviz can be used as realsense likes to push temperature or control issues in terminal but actually publishes the image).
+
+```
+sudo apt install tmux
+catkin_ws/staircase_doorway_detect_yolov3.sh
+```
+
+**issues that may arise, helpful links**
+
+Project ‘cv_\bridge‘ specifies ‘/usr/include/opencv‘ as an include dir, which is not found: https://github.com/ros-perception/vision\_opencv/issues/389
+
+darknet-master seem uses pkg-config to locate the lib of opencv4 (darknet-master/Makefile) however in opencv-4.1.0/CMakeLists.txt, it is deprecated - -，you need set the flag ON: https://github.com/pjreddie/darknet/issues/1494#issuecomment-629905519
+
 
 ________________________________________________________________________________
 **How to train with multi-GPU**
